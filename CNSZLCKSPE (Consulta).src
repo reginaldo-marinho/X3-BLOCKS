@@ -1,0 +1,152 @@
+$ ACTION
+
+    Case ACTION
+        when "LECTURE":  Gosub LECTURE 
+    Endcase
+Return
+
+$LECTURE
+    CALL LIMPAR_DETALHES
+    IF (FUNC BUSCAR_BLOQUEIOS () > 0) THEN
+        CALL BUSCAR_PROCESSOS() 
+    ENDIF 
+return
+
+SUBPROG LIMPAR_DETALHES           
+    [M:ZLCKD]NBLIG  = 0
+    [M:ZLCKD]NBLIG2 = 0 
+    Affzo [M:ZLCKD]         
+END 
+
+
+FUNPROG BUSCAR_BLOQUEIOS
+    
+    Local integer QUANTIDADE_BLOQUEIO 
+    Local Char  SELECT(255) (1..16)
+    
+    SELECT(1) = " select  PR.spid as sessao, "
+    SELECT(2) = " TEX0.text as comando_bloqueado, "
+    SELECT(3) = " blocking_session_id as Responsavel_pelo_bloqueio, "
+    SELECT(4) = " TEX1.text as comando_reponsavel, "
+    SELECT(5) = " PR.cpu as tempo_processo, "
+    SELECT(6) = " PR.uid as usuario_comando, "
+    SELECT(7) = " PR.open_tran as transacoes_abertas, "
+    SELECT(8) = " PR.status,"
+    SELECT(9) = " PR.cmd as comando, "
+    SELECT(10) = " PR.nt_username "
+    SELECT(11) = " from sys.sysprocesses  PR	CROSS APPLY sys.dm_exec_sql_text(PR.sql_handle) TEX0 "
+    SELECT(12) = " inner join  sys.dm_exec_requests RE on PR.spid = RE.session_id and  PR.blocked  = RE.blocking_session_id "
+    SELECT(13) = " inner join  sys.dm_exec_sessions SE on  RE.blocking_session_id = SE.session_id "
+    SELECT(14) = " CROSS APPLY sys.dm_exec_sql_text(PR.sql_handle) TEX1 "
+    SELECT(15) = " where blocked <> 0 "
+    SELECT(16) = " order by blocked DESC "
+    
+    QUANTIDADE_BLOQUEIO = 0
+
+    For (   integer  sessao,  CHAR  comando_bloqueado, INTEGER  Responsavel_pelo_bloqueio, CHAR  comando_reponsavel, integer  tempo_processo, 
+&           integer  usuario_comando,  integer transacoes_abertas,  char status, char comando(25), char  nt_username(25))
+&
+&  From '5' SQL SELECT  As [BLO]
+        [M:ZLCKD]SESSAO     (nolign-1)= [BLO]sessao
+        [M:ZLCKD]CMDBLOCK   (nolign-1)= [BLO]comando_bloqueado
+        [M:ZLCKD]BLOCKSESS  (nolign-1)= [BLO]Responsavel_pelo_bloqueio
+        [M:ZLCKD]CMDRESP    (nolign-1)= [BLO]comando_reponsavel
+        [M:ZLCKD]CPU        (nolign-1)= [BLO]tempo_processo
+        [M:ZLCKD]OPENTRAN   (nolign-1)= [BLO]transacoes_abertas
+        [M:ZLCKD]STAT       (nolign-1)= [BLO]status
+        [M:ZLCKD]CRUD       (nolign-1)= [BLO]comando
+        [M:ZLCKD]USER       (nolign-1)= [BLO]nt_username
+        
+        QUANTIDADE_BLOQUEIO = QUANTIDADE_BLOQUEIO + 1
+        nolign = nolign + 1 
+        #Affzo [M:ZLCKD] 
+    next
+    [M:ZLCKD]NBLIG2 = nolign - 1
+    Affzo [M:ZLCKD] 
+END QUANTIDADE_BLOQUEIO
+
+
+SUBPROG  BUSCAR_PROCESSOS ()
+
+Local Char  SELECT(255) (1..41)
+
+        SELECT(1) = " SELECT ES.program_name AS ProgramName, "
+        SELECT(2) = " ES.host_name AS HostName, "
+        SELECT(3) = " ES.session_id AS S_Id, "
+        SELECT(4) = " ES.login_name AS LoginName, "
+        SELECT(5) = " COALESCE(OBJ.name, PAROBJ.name) AS ObjectName, "
+        SELECT(6) = " PARIDX.name AS IndexName, ST.text AS SqlStatementText, "
+        SELECT(7) = " TAT.[name] AS TransName, "
+        SELECT(8) = " TAT.transaction_begin_time AS TransBegin, "
+        SELECT(9) = " DATEDIFF(ss, TAT.transaction_begin_time, GETDATE()) AS TransDura, "
+        SELECT(10) = " TL.resource_type AS ResType, "
+        SELECT(11) = " TL.request_mode AS ReqMode, "
+        SELECT(12) = " TL.request_status AS ReqStatus, "
+        SELECT(13) = " TL.request_owner_type AS ReqOwnerType "
+
+        SELECT(14) = " FROM sys.dm_tran_locks AS TL "
+        SELECT(15) =       " INNER JOIN sys.dm_exec_sessions AS ES  "
+        SELECT(16) =           " ON TL.request_session_id = ES.session_id "
+        SELECT(17) =       " LEFT JOIN sys.dm_tran_active_transactions AS TAT "
+        SELECT(18) =           " ON TL.request_owner_id = TAT.transaction_id "
+        SELECT(19) =              "  AND TL.request_owner_type = 'TRANSACT5ION' "
+        SELECT(20) =       " LEFT JOIN sys.objects AS OBJ "
+        SELECT(21) =           " ON TL.resource_associated_entity_id = OBJ.object_id "
+        SELECT(22) =              " AND TL.resource_type = 'OBJECT' "
+        SELECT(23) =       " LEFT JOIN sys.partitions AS PAR "
+        SELECT(24) =           " ON TL.resource_associated_entity_id = PAR.hobt_id "
+        SELECT(25) =              " AND TL.resource_type IN ('PAGE', 'KEY', 'RID', 'HOBT') "
+        SELECT(26) =       " LEFT JOIN sys.objects AS PAROBJ "
+        SELECT(27) =           " ON PAR.object_id = PAROBJ.object_id "
+        SELECT(28) =       " LEFT JOIN sys.indexes AS PARIDX "
+        SELECT(29) =           " ON PAR.object_id = PARIDX.object_id "
+        SELECT(30) =              " AND PAR.index_id = PARIDX.index_id "
+
+        SELECT(31) =  "JOIN sys.dm_exec_connections CN on CN.session_id = TL.request_session_id "
+        SELECT(32) =  "CROSS APPLY sys.dm_exec_sql_text(CN.most_recent_sql_handle) AS ST "
+
+
+        SELECT(33) = " WHERE TL.resource_database_id  = DB_ID()  and  PARIDX.name is null  " 
+        SELECT(34) =        " AND ES.session_id <> @@Spid "  
+        SELECT(35) =        " AND TL.request_mode <> 'S' " 
+        SELECT(36) =        " ORDER BY TAT.transaction_begin_time desc, TL.resource_type "
+        SELECT(37) =          " ,TL.request_mode "
+        SELECT(38) =          " ,TL.request_type "
+        SELECT(39) =          " ,TL.request_status " 
+        SELECT(40) =          " ,ObjectName "
+        SELECT(41) =          " ,ES.login_name; "
+
+    For (   char ProgramName,  CHAR  HostName, INTEGER  S_Id, CHAR  LoginName, CHAR ObjectName, 
+&           char IndexName,  char SqlStatementText (255),  char TransName, Datetime  TransBegin, integer TransDura, char ResType,
+&           char ReqMode, char ReqStatus , char ReqOwnerType )
+&
+&  From '5' SQL SELECT  As [PRO]
+        [M:ZLCKD]LOGINNAME      (nolign-1)  = [PRO]LoginName
+        [M:ZLCKD]S_ID           (nolign-1)  = [PRO]S_Id
+        [M:ZLCKD]TRANSDURA      (nolign-1)  = [PRO]TransDura
+        [M:ZLCKD]OBJECTNAME     (nolign-1)  = [PRO]ObjectName
+        [M:ZLCKD]INDEXNAME      (nolign-1)  = [PRO]IndexName
+        [M:ZLCKD]CMD            (nolign-1)  = [PRO]SqlStatementText
+        [M:ZLCKD]HOSTNAME       (nolign-1)  = [PRO]HostName
+        [M:ZLCKD]PROGRAMNAME    (nolign-1)  = [PRO]ProgramName
+        [M:ZLCKD]TRANSNAME      (nolign-1)  = [PRO]TransName
+        [M:ZLCKD]TRANSBEGIN     (nolign-1)  = num$([PRO]TransBegin)
+        [M:ZLCKD]RESTYPE        (nolign-1)  = [PRO]ResType
+        [M:ZLCKD]REQMODE        (nolign-1)  = [PRO]ReqMode
+        [M:ZLCKD]REQSTATUS      (nolign-1)  = [PRO]ReqStatus
+        [M:ZLCKD]REQOWNERTYPE   (nolign-1)  = [PRO]ReqOwnerType 
+
+         nolign = nolign + 1 
+           Affzo [M:ZLCKD] 
+    Next
+    [M:ZLCKD]NBLIG = nolign-1
+    Affzo [M:ZLCKD] 
+end 
+
+
+  
+
+
+
+
+
